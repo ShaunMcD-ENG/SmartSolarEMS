@@ -82,7 +82,7 @@ docs/         Sigenergy Modbus register map, Amber API reference
 - [x] **Phase 0 — Research docs**: Sigenergy Modbus register map + Amber API reference → `docs/` ✓ (official protocol PDFs v2.7/v2.9; watchdog behaviour UNVERIFIED — client must implement its own supervisory fail-safe)
 - [x] **Phase 1 — Scaffold**: package.json, tsconfig, Hono server, config, logger, docker-compose.dev, migration runner, bun test smoke ✓ (9 tests green; dev DB on port **5434**, 5433 was taken)
 - [x] **Phase 2 — DB schema**: telemetry, prices, forecasts, plans, decisions, settings, sessions hypertables/tables ✓ (29 tests green; migrate.ts supports `-- migrate:no-transaction`; repo helpers in src/db/repositories.ts; settings service in src/config/settings.ts)
-- [ ] **Phase 3 — Collectors**: Modbus poller (telemetry), Amber poller (prices, current+forecast)
+- [x] **Phase 3 — Collectors**: Modbus poller (telemetry), Amber poller (prices, current+forecast) ✓ (73 tests across both; control methods implemented but unused until executor phase)
 - [ ] **Phase 4 — Forecasting**: usage & solar prediction (time-of-day/day-of-week profiles, EWMA learning), price forecast passthrough from Amber
 - [ ] **Phase 5 — Planner**: 24h rolling plan, 5-min slots; constraints: min reserve, max cycles/day, target SOC@time, demand window+buffer, solar-first; objective: cost min / revenue max
 - [ ] **Phase 6 — Executor**: shadow mode (log only) + active mode (Modbus remote-EMS writes), safety guards, min command window
@@ -104,3 +104,5 @@ docs/         Sigenergy Modbus register map, Amber API reference
 - Sigenergy remote-EMS register semantics must be verified against real inverter before
   active mode is ever enabled (shadow mode default ON, stored in settings).
 - Later feature: outside temperature ingestion (Home Assistant push or scrape) for forecasts.
+- Amber `advancedPrice`/`range` fields are NOT sign-flipped for feedIn (only perKwh/spotPerKwh
+  are, per docs) — verify against real feed-in forecast data once a live token is configured.
