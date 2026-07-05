@@ -53,6 +53,15 @@ minimisation naturally since buy[t] > 0 ≥ cost of solar.
   later imports), which is exactly the requirement.
 - **Min command window**: post-process — merge/hold actions so a commanded state persists
   ≥ minCommandWindowMin before changing (executor also enforces).
+- **User overrides** (see db-schema.md `overrides` table): before running the DP, active
+  pending overrides pin their slots — the transition set for a pinned slot is restricted to
+  the override action (charge at power_w or max rate until energy_wh delivered; discharge
+  likewise; self_consume = battery follows net load, no grid trade; idle = battery power 0).
+  The DP still optimises all unpinned slots *around* the pinned ones (it sees the resulting
+  SOC trajectory). Precedence: safety (min reserve, power limits) > demand window
+  (unless override_demand_window=true) > user override > automatic optimisation. Slot 0's
+  `reason` must say when an override or demand-window protection is in charge. Overrides
+  whose energy target is met are marked completed; past-window ones expired.
 
 ### Outputs
 For each slot: action label, battery_power_w (signed), expected SOC trajectory, expected

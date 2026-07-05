@@ -80,6 +80,23 @@ plan_id bigint, reason text, executed boolean, error text,
 PK (time)
 ```
 
+## overrides (plain table) — user-scheduled manual commands (migration 004)
+```
+id bigserial PK, created_at timestamptz not null default now(),
+start_time timestamptz not null, end_time timestamptz,   -- end null = until energy target met
+action text not null,        -- 'charge' | 'discharge' | 'self_consume' | 'idle'
+energy_wh int,               -- e.g. "charge 9 kWh" → 9000; null = hold action for window
+power_w int,                 -- optional explicit power; null = planner picks (≤ limits)
+override_demand_window boolean not null default false,  -- true only after double-confirm
+status text not null default 'pending',  -- pending|active|completed|cancelled|expired
+note text
+```
+Semantics: overrides pin planner slots in [start_time, end_time) to the action (energy-target
+overrides run from start_time until energy_wh delivered, then complete). Overrides beat all
+automatic behaviour EXCEPT demand-window protection: slots inside the demand window+buffer
+revert to self-consumption unless override_demand_window=true. Safety limits (min reserve
+SOC, max charge/discharge power) always apply regardless.
+
 ## sessions (plain)
 ```
 id text PK, created_at, expires_at

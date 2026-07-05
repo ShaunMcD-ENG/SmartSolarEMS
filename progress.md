@@ -34,6 +34,11 @@ image on DockerHub for unRAID.
 - Charge in cheapest periods (~4am, midday); discharge at peak (~18:00–21:00); opportunistic
   sell during price spikes any time, if it won't force grid import later.
 - Plan full next 24h; replan every 5 min as prices/solar/usage diverge from forecast.
+- **User override commands** (added 2026-07-05): user can schedule manual actions ahead of
+  time (e.g. "charge 9 kWh starting 01:00", "self-consumption 09:00–12:00"). Overrides beat
+  all automatic/predicted behaviour, EXCEPT the configured demand window: demand-window
+  self-consumption beats the override unless the user explicitly double-confirms
+  ("yes, continue into the demand window") when creating it.
 - Learn/improve forecasts over time. (Later: outside temperature input from Home Assistant.)
 - Unit tests; verify code as much as possible.
 - Branding: **SmartSolarEMS**.
@@ -74,9 +79,9 @@ docs/         Sigenergy Modbus register map, Amber API reference
 
 ## Phase Plan & Status
 
-- [ ] **Phase 0 — Research docs**: Sigenergy Modbus register map + Amber API reference → `docs/` *(agent running)*
+- [x] **Phase 0 — Research docs**: Sigenergy Modbus register map + Amber API reference → `docs/` ✓ (official protocol PDFs v2.7/v2.9; watchdog behaviour UNVERIFIED — client must implement its own supervisory fail-safe)
 - [x] **Phase 1 — Scaffold**: package.json, tsconfig, Hono server, config, logger, docker-compose.dev, migration runner, bun test smoke ✓ (9 tests green; dev DB on port **5434**, 5433 was taken)
-- [ ] **Phase 2 — DB schema**: telemetry, prices, forecasts, plans, decisions, settings, sessions hypertables/tables
+- [x] **Phase 2 — DB schema**: telemetry, prices, forecasts, plans, decisions, settings, sessions hypertables/tables ✓ (29 tests green; migrate.ts supports `-- migrate:no-transaction`; repo helpers in src/db/repositories.ts; settings service in src/config/settings.ts)
 - [ ] **Phase 3 — Collectors**: Modbus poller (telemetry), Amber poller (prices, current+forecast)
 - [ ] **Phase 4 — Forecasting**: usage & solar prediction (time-of-day/day-of-week profiles, EWMA learning), price forecast passthrough from Amber
 - [ ] **Phase 5 — Planner**: 24h rolling plan, 5-min slots; constraints: min reserve, max cycles/day, target SOC@time, demand window+buffer, solar-first; objective: cost min / revenue max
