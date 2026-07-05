@@ -88,7 +88,7 @@ docs/         Sigenergy Modbus register map, Amber API reference
 - [x] **Phase 5 — Planner**: 24h rolling plan, 5-min slots ✓ (52 tests; optimise() ~150 ms incl. λ search; override pinning + demand-window precedence; PlannerService.runOnce with injected deps — NOT yet wired into index.ts, executor phase does that)
 - [x] **Phase 6 — Executor**: shadow mode (log only) + active mode (Modbus remote-EMS writes), safety guards, min command window ✓ (32 tests; fail-safe on 3 write failures or lost prices; handback on stop/shutdown/mode-flip; shadow mode makes zero Modbus calls)
 - [x] **Phase 7a — HTTP layer**: auth (first-boot setup, sessions, rate limit), REST API (status/telemetry/prices/plan/decisions/settings redacted/overrides 409-confirm flow), index.ts supervisor wiring ✓ (53 tests + live smoke run; mode.shadow=false needs confirm:"ACTIVATE")
-- [ ] **Phase 7b — Web UI**: React dashboard (live telemetry, prices, plan, decisions), settings page, first-boot setup screen
+- [x] **Phase 7b — Web UI**: React dashboard (live telemetry, prices, plan, decisions), settings page, first-boot setup screen ✓ (typecheck clean, vite build OK, full curl-driven E2E smoke incl. 409-confirm override flow and ACTIVATE mode gate)
 - [ ] **Phase 8 — MCP server**: tools to query state/plan/decisions/forecast accuracy
 - [ ] **Phase 9 — Packaging**: Dockerfile, compose for unRAID, DockerHub publish instructions, README
 - [ ] **Phase 10 — Hardening**: end-to-end verification, extra tests, forecast accuracy metrics
@@ -113,4 +113,6 @@ docs/         Sigenergy Modbus register map, Amber API reference
   charging pulls from grid when power > PV surplus, else extend SigenergyClient; (2) executor's
   demand-window pin detection uses a reason-string heuristic — pass structured pin info through
   the plan instead; (3) app.test.ts "unknown route 404" test fails when src/web/dist exists
-  (static fallback serves index.html) — make the test dist-independent.
+  (static fallback serves index.html) — make the test dist-independent. (4) overrides.id
+  (bigserial) is returned as a numeric string by the driver despite OverrideRow.id: number —
+  normalise in src/db/overrides.ts.
