@@ -216,6 +216,7 @@ export function registerApiRoutes(app: Hono, deps: AppDeps): void {
       mode: mode?.shadow === false ? "active" : "shadow",
       modbus: deps.pollers.modbus.status(),
       amber: deps.pollers.amber.status(),
+      executor: deps.executor?.status() ?? null,
       db: { ok: dbOk },
       version,
       uptime: Math.floor((Date.now() - startedAt) / 1000),

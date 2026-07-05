@@ -37,6 +37,21 @@ export interface PollersLike {
   amber: { status(): PollerStatusLike };
 }
 
+/**
+ * Structural mirror of ExecutorService.status() (src/executor/service.ts),
+ * declared locally per this file's usual pattern (see PollerStatusLike above)
+ * so tests can inject a fake without importing the executor module.
+ */
+export interface ExecutorStatusLike {
+  running: boolean;
+  mode: "shadow" | "active";
+  lastTick: Date | null;
+  lastAction: string | null;
+  lastError: string | null;
+  consecutiveModbusFailures: number;
+  failSafeEngaged: boolean;
+}
+
 /** Structural subset of ForecastService (src/forecast/service.ts). */
 export interface ForecastServiceLike {
   accuracy(from: Date, to: Date): Promise<AccuracyResult>;
@@ -71,6 +86,8 @@ export interface AppDeps {
   forecastService: ForecastServiceLike;
   repos: ReposLike;
   overridesRepo: OverridesRepoLike;
+  /** Optional (added once src/index.ts wires up ExecutorService); /api/status includes it when present. */
+  executor?: { status(): ExecutorStatusLike };
   /** Injectable clock for tests; defaults to `() => new Date()`. */
   now?: () => Date;
   /** Reported by /api/health and /api/status; defaults to package.json's version. */

@@ -4,20 +4,24 @@ import type { SettingsKey } from "./config/settings";
 import { SettingsService } from "./config/settings";
 import { closeDb, getDb } from "./db/client";
 import { runMigrations } from "./db/migrate";
-import { insertOverride, listOverrides, setOverrideStatus } from "./db/overrides";
+import { insertOverride, listOverrides, relevantOverrides, setOverrideStatus } from "./db/overrides";
 import {
   decisionsBetween,
+  insertDecision,
   insertForecasts,
+  insertPlan,
   latestPlan,
   latestTelemetry,
   pricesBetween,
   telemetry5mBetween,
   telemetryBetween,
 } from "./db/repositories";
+import { ExecutorService, type ExecutorModbusClient } from "./executor/service";
 import { ForecastService } from "./forecast/service";
 import { createLogger } from "./lib/logger";
 import { SigenergyClient } from "./modbus/client";
 import { TelemetryPoller } from "./modbus/poller";
+import { PlannerService } from "./planner/service";
 import { createSqlSessionStore } from "./server/auth";
 import { createApp } from "./server/app";
 import type { AppDeps, PollerStatusLike } from "./server/types";
@@ -127,6 +131,8 @@ async function reconcileAmber(settings: SettingsService, state: CollectorState):
 
 interface CollectorSupervisor {
   pollers: AppDeps["pollers"];
+  /** Current shared SigenergyClient, if sigenergy is configured — used by the executor so it never opens a second TCP connection. */
+  getModbusClient(): SigenergyClient | null;
   stop(): Promise<void>;
 }
 
@@ -157,12 +163,35 @@ function startCollectorSupervisor(settings: SettingsService): CollectorSuperviso
       modbus: { status: () => state.modbusPoller?.status() ?? NOT_CONFIGURED_STATUS },
       amber: { status: () => state.amberPoller?.status() ?? NOT_CONFIGURED_STATUS },
     },
+    getModbusClient: () => state.modbusClient,
     async stop() {
       clearInterval(timer);
       state.modbusPoller?.stop();
       state.modbusClient?.disconnect();
       state.amberPoller?.stop();
     },
+  };
+}
+
+/**
+ * Delegates to whatever SigenergyClient the collector supervisor currently
+ * holds (it can be replaced on a host/port/unit-id settings change) so the
+ * executor shares the poller's single TCP connection rather than opening its
+ * own. Throws if sigenergy isn't configured yet — callers (ExecutorService,
+ * active-mode-only) already treat control-write failures as safety events.
+ */
+function makeExecutorClient(supervisor: CollectorSupervisor): ExecutorModbusClient {
+  function requireClient(): SigenergyClient {
+    const client = supervisor.getModbusClient();
+    if (!client) throw new Error("sigenergy is not configured (no shared Modbus client available)");
+    return client;
+  }
+  return {
+    readSocLimits: () => requireClient().readSocLimits(),
+    enableRemoteEms: (on) => requireClient().enableRemoteEms(on),
+    setControlMode: (mode) => requireClient().setControlMode(mode),
+    setChargePowerW: (watts) => requireClient().setChargePowerW(watts),
+    setDischargePowerW: (watts) => requireClient().setDischargePowerW(watts),
   };
 }
 
@@ -194,6 +223,29 @@ async function main(): Promise<void> {
   await forecastService.refreshProfiles();
   const forecastRefreshTimer = setInterval(() => void forecastService.refreshProfiles(), FORECAST_REFRESH_INTERVAL_MS);
 
+  const plannerService = new PlannerService({
+    pricesBetween: (from, to, channel) => pricesBetween(from, to, channel, sql),
+    forecast: (now, horizonSlots) => forecastService.forecast(now, horizonSlots),
+    latestTelemetry: () => latestTelemetry(sql),
+    settings,
+    relevantOverrides: (at) => relevantOverrides(at, sql),
+    setOverrideStatus: (id, status) => setOverrideStatus(id, status, sql),
+    insertPlan: (plan, slots) => insertPlan(plan, slots, sql),
+  });
+
+  // Executor shares the collector supervisor's single SigenergyClient (see
+  // makeExecutorClient) rather than opening a second TCP connection. It self-
+  // selects shadow/active per tick from mode.shadow, so it's always started.
+  const executor = new ExecutorService({
+    runOnce: (now) => plannerService.runOnce(now),
+    client: makeExecutorClient(supervisor),
+    settings,
+    insertDecision: (row) => insertDecision(row, sql),
+    latestTelemetry: () => latestTelemetry(sql),
+    tz: config.TZ,
+  });
+  executor.start();
+
   const deps: AppDeps = {
     settings,
     sessions,
@@ -212,6 +264,7 @@ async function main(): Promise<void> {
       listOverrides: (opts) => listOverrides(opts, sql),
       setOverrideStatus: (id, status) => setOverrideStatus(id, status, sql),
     },
+    executor: { status: () => executor.status() },
   };
 
   const app = createApp(deps);
@@ -224,6 +277,10 @@ async function main(): Promise<void> {
     shuttingDown = true;
     log.info(`received ${signal}, shutting down`);
     clearInterval(forecastRefreshTimer);
+    // Executor stops first so, in active mode, it can hand control back to
+    // the inverter (disable remote EMS) while the shared Modbus client and
+    // DB are still up.
+    await executor.stop();
     await supervisor.stop();
     server.stop();
     await closeDb();
