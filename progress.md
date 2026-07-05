@@ -86,7 +86,7 @@ docs/         Sigenergy Modbus register map, Amber API reference
 - [x] **Phase 4 — Forecasting**: usage & solar prediction (time-of-day/day-of-week profiles, EWMA learning), price forecast passthrough from Amber ✓ (30 tests; accuracy() gives MAPE/bias by horizon bucket; cold-start = flat 500 W load, zero solar)
 - [x] **Phase 4b — Overrides storage**: migration 004 + src/db/overrides.ts (lead-built) ✓
 - [x] **Phase 5 — Planner**: 24h rolling plan, 5-min slots ✓ (52 tests; optimise() ~150 ms incl. λ search; override pinning + demand-window precedence; PlannerService.runOnce with injected deps — NOT yet wired into index.ts, executor phase does that)
-- [ ] **Phase 6 — Executor**: shadow mode (log only) + active mode (Modbus remote-EMS writes), safety guards, min command window
+- [x] **Phase 6 — Executor**: shadow mode (log only) + active mode (Modbus remote-EMS writes), safety guards, min command window ✓ (32 tests; fail-safe on 3 write failures or lost prices; handback on stop/shutdown/mode-flip; shadow mode makes zero Modbus calls)
 - [x] **Phase 7a — HTTP layer**: auth (first-boot setup, sessions, rate limit), REST API (status/telemetry/prices/plan/decisions/settings redacted/overrides 409-confirm flow), index.ts supervisor wiring ✓ (53 tests + live smoke run; mode.shadow=false needs confirm:"ACTIVATE")
 - [ ] **Phase 7b — Web UI**: React dashboard (live telemetry, prices, plan, decisions), settings page, first-boot setup screen
 - [ ] **Phase 8 — MCP server**: tools to query state/plan/decisions/forecast accuracy
@@ -108,3 +108,9 @@ docs/         Sigenergy Modbus register map, Amber API reference
 - Later feature: outside temperature ingestion (Home Assistant push or scrape) for forecasts.
 - Amber `advancedPrice`/`range` fields are NOT sign-flipped for feedIn (only perKwh/spotPerKwh
   are, per docs) — verify against real feed-in forecast data once a live token is configured.
+- Hardening candidates (from executor build): (1) charge_grid and charge_solar currently issue
+  the same PV-first Modbus command — verify against real hardware whether PV-first command
+  charging pulls from grid when power > PV surplus, else extend SigenergyClient; (2) executor's
+  demand-window pin detection uses a reason-string heuristic — pass structured pin info through
+  the plan instead; (3) app.test.ts "unknown route 404" test fails when src/web/dist exists
+  (static fallback serves index.html) — make the test dist-independent.
