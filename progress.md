@@ -89,7 +89,7 @@ docs/         Sigenergy Modbus register map, Amber API reference
 - [x] **Phase 6 — Executor**: shadow mode (log only) + active mode (Modbus remote-EMS writes), safety guards, min command window ✓ (32 tests; fail-safe on 3 write failures or lost prices; handback on stop/shutdown/mode-flip; shadow mode makes zero Modbus calls)
 - [x] **Phase 7a — HTTP layer**: auth (first-boot setup, sessions, rate limit), REST API (status/telemetry/prices/plan/decisions/settings redacted/overrides 409-confirm flow), index.ts supervisor wiring ✓ (53 tests + live smoke run; mode.shadow=false needs confirm:"ACTIVATE")
 - [x] **Phase 7b — Web UI**: React dashboard (live telemetry, prices, plan, decisions), settings page, first-boot setup screen ✓ (typecheck clean, vite build OK, full curl-driven E2E smoke incl. 409-confirm override flow and ACTIVATE mode gate)
-- [ ] **Phase 8 — MCP server**: tools to query state/plan/decisions/forecast accuracy
+- [x] **Phase 8 — MCP server**: tools to query state/plan/decisions/forecast accuracy ✓ (10 read-only tools incl. explain_decision; bearer token via POST /api/mcp/token/regenerate; 23 tests + live JSON-RPC smoke)
 - [ ] **Phase 9 — Packaging**: Dockerfile, compose for unRAID, DockerHub publish instructions, README
 - [ ] **Phase 10 — Hardening**: end-to-end verification, extra tests, forecast accuracy metrics
 
