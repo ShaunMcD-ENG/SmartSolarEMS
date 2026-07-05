@@ -11,6 +11,7 @@ import {
   latestTelemetry,
   pricesBetween,
   telemetry5mBetween,
+  telemetryBetween,
   upsertPrices,
 } from "./repositories";
 import { isDbAvailable } from "./test-helpers";
@@ -81,6 +82,26 @@ describe.skipIf(!dbAvailable)("repositories", () => {
     expect(latest?.battery_power_w).toBe(-300);
     expect(latest?.battery_soc_pct).toBeCloseTo(62.5);
     expect(latest?.extra).toEqual({ note: "test" });
+  });
+
+  test("telemetryBetween returns raw rows in range, ordered by time", async () => {
+    await cleanup();
+    await insertTelemetry(
+      { time: MARKER_TIME, pv_power_w: 100, battery_power_w: 0, battery_soc_pct: 50, grid_power_w: 0, load_power_w: 100, ems_mode: 1, extra: null },
+      sql,
+    );
+    await insertTelemetry(
+      { time: MARKER_TIME_2, pv_power_w: 200, battery_power_w: 0, battery_soc_pct: 51, grid_power_w: 0, load_power_w: 200, ems_mode: 1, extra: null },
+      sql,
+    );
+
+    const rows = await telemetryBetween(MARKER_TIME, MARKER_TIME_2, sql);
+    expect(rows.length).toBe(2);
+    expect(rows[0]?.pv_power_w).toBe(100);
+    expect(rows[1]?.pv_power_w).toBe(200);
+
+    const narrow = await telemetryBetween(MARKER_TIME, MARKER_TIME, sql);
+    expect(narrow.length).toBe(1);
   });
 
   test("upsertPrices keeps the latest value for the same interval", async () => {

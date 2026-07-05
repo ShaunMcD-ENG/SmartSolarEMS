@@ -227,6 +227,19 @@ export async function latestTelemetry(sql: Sql = getDb()): Promise<TelemetryRow 
   return row ?? null;
 }
 
+export async function telemetryBetween(
+  from: Date,
+  to: Date,
+  sql: Sql = getDb(),
+): Promise<TelemetryRow[]> {
+  return sql<TelemetryRow[]>`
+    SELECT time, pv_power_w, battery_power_w, battery_soc_pct, grid_power_w, load_power_w, ems_mode, extra
+    FROM telemetry
+    WHERE time BETWEEN ${from} AND ${to}
+    ORDER BY time
+  `;
+}
+
 export async function pricesBetween(
   from: Date,
   to: Date,
