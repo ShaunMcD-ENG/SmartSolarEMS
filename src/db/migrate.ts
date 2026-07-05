@@ -9,6 +9,19 @@ const log = createLogger("migrate");
 
 const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), "migrations");
 
+/**
+ * First-line directive a migration file can use to opt out of the runner's
+ * default transaction wrapping. Required for statements that Postgres/Timescale
+ * refuse to run inside a transaction block (e.g. CREATE MATERIALIZED VIEW ...
+ * WITH (timescaledb.continuous), add_compression_policy, add_retention_policy).
+ * The migration is still recorded in schema_migrations once it succeeds.
+ */
+const NO_TRANSACTION_DIRECTIVE = "-- migrate:no-transaction";
+
+function requiresNoTransaction(contents: string): boolean {
+  return contents.trimStart().startsWith(NO_TRANSACTION_DIRECTIVE);
+}
+
 interface Migration {
   name: string;
   path: string;
@@ -46,8 +59,9 @@ async function ensureMigrationsTable(sql: Sql): Promise<void> {
 
 /**
  * Applies every migration under src/db/migrations that has not yet been
- * recorded in schema_migrations, in ascending numeric-prefix order, each
- * inside its own transaction.
+ * recorded in schema_migrations, in ascending numeric-prefix order. Each
+ * migration runs inside its own transaction, unless its first line is the
+ * NO_TRANSACTION_DIRECTIVE, in which case it is applied unwrapped.
  */
 export async function runMigrations(sql: Sql): Promise<string[]> {
   await ensureMigrationsTable(sql);
@@ -68,10 +82,15 @@ export async function runMigrations(sql: Sql): Promise<string[]> {
   for (const migration of pending) {
     const contents = await readFile(migration.path, "utf8");
     log.info(`applying migration ${migration.name}`);
-    await sql.begin(async (tx) => {
-      await tx.unsafe(contents);
-      await tx`INSERT INTO schema_migrations (name) VALUES (${migration.name})`;
-    });
+    if (requiresNoTransaction(contents)) {
+      await sql.unsafe(contents);
+      await sql`INSERT INTO schema_migrations (name) VALUES (${migration.name})`;
+    } else {
+      await sql.begin(async (tx) => {
+        await tx.unsafe(contents);
+        await tx`INSERT INTO schema_migrations (name) VALUES (${migration.name})`;
+      });
+    }
     ranNames.push(migration.name);
   }
 
