@@ -51,6 +51,11 @@ const schemas = {
   pricing: z.object({
     spikeSellThreshold: z.number().optional(),
   }),
+  /** MCP audit endpoint (POST/GET/DELETE /mcp): bearer-token gated, read-only. */
+  mcp: z.object({
+    enabled: z.boolean().default(true),
+    token: z.string().default(""),
+  }),
 } as const;
 
 export type Schemas = typeof schemas;
@@ -77,11 +82,13 @@ const DEFAULTS: { [K in SettingsKey]?: SettingsValue<K> } = {
   demandWindow: { enabled: false, start: "15:00", end: "20:00", bufferMin: 10 },
   mode: { shadow: true },
   pricing: {},
+  mcp: { enabled: true, token: "" },
 };
 
 /** Per-key field names whose values must never be logged verbatim. */
 const SECRET_FIELDS: Partial<Record<SettingsKey, readonly string[]>> = {
   amber: ["apiToken"],
+  mcp: ["token"],
 };
 
 /** Redacts secret sub-fields (and whole-value secrets) before logging. */

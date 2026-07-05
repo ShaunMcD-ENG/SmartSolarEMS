@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { z } from "zod";
 import { createLogger } from "../lib/logger";
+import { handleMcpRequest } from "../mcp/server";
 import { registerApiRoutes } from "./api";
 import type { AppDeps } from "./types";
 
@@ -20,6 +21,25 @@ export function createApp(deps: AppDeps): Hono {
   const app = new Hono();
 
   registerApiRoutes(app, deps);
+
+  // Read-only MCP audit endpoint (POST/GET/DELETE /mcp), mounted only when
+  // explicitly opted into (see AppDeps.mcp doc comment in ./types). Bearer
+  // token is checked against settings.mcp on every request rather than once
+  // at startup, so regenerating/disabling it via the API takes effect
+  // immediately without a restart.
+  if (deps.mcp) {
+    app.all("/mcp", async (c) => {
+      const mcpSettings = await deps.settings.get("mcp").catch(() => null);
+      if (!mcpSettings?.enabled) return c.json({ error: "mcp_disabled" }, 403);
+
+      const authHeader = c.req.header("authorization") ?? "";
+      const token = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length).trim() : "";
+      if (!token) return c.json({ error: "unauthorized" }, 401);
+      if (!mcpSettings.token || token !== mcpSettings.token) return c.json({ error: "forbidden" }, 403);
+
+      return handleMcpRequest(c.req.raw, deps);
+    });
+  }
 
   // Static frontend (src/web/dist), once it exists — built later (Phase 7).
   // Guarded so its absence during earlier phases doesn't error; registered

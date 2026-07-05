@@ -36,6 +36,7 @@ const SETTINGS_KEYS = [
   "demandWindow",
   "mode",
   "pricing",
+  "mcp",
 ] as const satisfies readonly SettingsKey[];
 
 // Compile-time exhaustiveness check: fails to typecheck if SettingsKey (in
@@ -53,9 +54,28 @@ function isSettingsKey(key: string): key is SettingsKey {
 }
 
 /** Masks a secret, keeping just enough to let an admin recognise "which one" without revealing it. */
-function maskSecret(value: string): string {
+export function maskSecret(value: string): string {
   if (!value) return "";
   return `•••${value.slice(-4)}`;
+}
+
+/**
+ * Redacts every secret settings field for external display: `amber.apiToken`
+ * and `mcp.token` are masked (see maskSecret), `admin_password_hash` is
+ * dropped entirely in favour of a boolean `adminPasswordSet`. Shared between
+ * GET /api/settings and the MCP `get_settings` tool (src/mcp/tools.ts) so
+ * there is exactly one place secrets get scrubbed before leaving the process.
+ */
+export function redactSettingsForClient(
+  all: { [K in SettingsKey]: SettingsValue<K> | null },
+): Record<string, unknown> {
+  const { admin_password_hash, amber, mcp, ...rest } = all;
+  return {
+    ...rest,
+    amber: amber ? { ...amber, apiToken: maskSecret(amber.apiToken) } : amber,
+    mcp: mcp ? { ...mcp, token: maskSecret(mcp.token) } : mcp,
+    adminPasswordSet: admin_password_hash !== null,
+  };
 }
 
 function errorJson(c: Context, status: 400 | 401 | 403 | 404 | 409 | 429, error: string, detail?: unknown) {
@@ -306,13 +326,7 @@ export function registerApiRoutes(app: Hono, deps: AppDeps): void {
 
   app.get("/api/settings", requireAuthMw, async (c) => {
     const all = await deps.settings.getAll();
-    const { admin_password_hash, amber, ...rest } = all;
-
-    return c.json({
-      ...rest,
-      amber: amber ? { ...amber, apiToken: maskSecret(amber.apiToken) } : amber,
-      adminPasswordSet: admin_password_hash !== null,
-    });
+    return c.json(redactSettingsForClient(all));
   });
 
   app.put("/api/settings/:key", requireAuthMw, async (c) => {
@@ -346,6 +360,26 @@ export function registerApiRoutes(app: Hono, deps: AppDeps): void {
       throw err;
     }
     return c.json({ ok: true });
+  });
+
+  // ---------------------------------------------------------------------
+  // Authenticated writes: MCP audit token
+  // ---------------------------------------------------------------------
+
+  /**
+   * Generates a fresh 32-byte (64 hex char) bearer token for the MCP audit
+   * endpoint (see src/mcp/server.ts), stores it, and returns it once in full —
+   * GET /api/settings only ever shows it masked (see maskSecret above), same
+   * as amber.apiToken. Preserves the current `enabled` flag.
+   */
+  app.post("/api/mcp/token/regenerate", requireAuthMw, async (c) => {
+    const current = await deps.settings.get("mcp");
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    const token = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+
+    await deps.settings.set("mcp", { enabled: current?.enabled ?? true, token });
+    return c.json({ token });
   });
 
   // ---------------------------------------------------------------------

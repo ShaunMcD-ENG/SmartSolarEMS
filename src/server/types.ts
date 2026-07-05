@@ -94,4 +94,26 @@ export interface AppDeps {
   version?: string;
   /** Directory to serve the built frontend from, if it exists; defaults to src/web/dist. */
   webDistDir?: string;
+  /**
+   * Mounts the read-only MCP audit endpoint (POST/GET/DELETE /mcp, see
+   * src/mcp/server.ts) when true. All data the MCP tools read is already
+   * present elsewhere on AppDeps (settings/pollers/forecastService/repos/
+   * overridesRepo/executor), so this is a plain opt-in toggle rather than a
+   * bag of extra dependencies — same shape as `webDistDir` above. Real wiring
+   * (src/index.ts) always sets this; most tests that don't exercise /mcp can
+   * leave it unset.
+   */
+  mcp?: boolean;
+  /**
+   * Test seams for the MCP `explain_decision` tool (src/mcp/tools.ts):
+   * fetching an arbitrary plan by id, or the latest/nearest-to-a-time
+   * decision row, isn't part of ReposLike above, so production wiring
+   * (src/index.ts) leaves these unset and the MCP layer's own DB-backed
+   * defaults (src/mcp/queries.ts) are used instead. Tests that exercise
+   * explain_decision through the HTTP layer (app.request()) can set these to
+   * avoid needing a live DB.
+   */
+  planById?: (id: number) => Promise<PlanWithSlots | null>;
+  latestDecision?: () => Promise<DecisionRow | null>;
+  nearestDecision?: (target: Date) => Promise<DecisionRow | null>;
 }

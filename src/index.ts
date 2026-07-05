@@ -265,6 +265,7 @@ async function main(): Promise<void> {
       setOverrideStatus: (id, status) => setOverrideStatus(id, status, sql),
     },
     executor: { status: () => executor.status() },
+    mcp: true,
   };
 
   const app = createApp(deps);
