@@ -74,8 +74,8 @@ docs/         Sigenergy Modbus register map, Amber API reference
 
 ## Phase Plan & Status
 
-- [ ] **Phase 0 — Research docs**: Sigenergy Modbus register map + Amber API reference → `docs/`
-- [ ] **Phase 1 — Scaffold**: package.json, tsconfig, Hono server, config, logger, docker-compose.dev, migration runner, bun test smoke
+- [ ] **Phase 0 — Research docs**: Sigenergy Modbus register map + Amber API reference → `docs/` *(agent running)*
+- [x] **Phase 1 — Scaffold**: package.json, tsconfig, Hono server, config, logger, docker-compose.dev, migration runner, bun test smoke ✓ (9 tests green; dev DB on port **5434**, 5433 was taken)
 - [ ] **Phase 2 — DB schema**: telemetry, prices, forecasts, plans, decisions, settings, sessions hypertables/tables
 - [ ] **Phase 3 — Collectors**: Modbus poller (telemetry), Amber poller (prices, current+forecast)
 - [ ] **Phase 4 — Forecasting**: usage & solar prediction (time-of-day/day-of-week profiles, EWMA learning), price forecast passthrough from Amber
@@ -90,7 +90,9 @@ docs/         Sigenergy Modbus register map, Amber API reference
 
 ### 2026-07-05 (session 1)
 - Project charter + tracker created. Git repo initialised.
-- Started Phase 0 (research agent) + Phase 1 (scaffold agent) in parallel.
+- Lead wrote design/db-schema.md + design/planner.md (DP-over-SOC optimizer, Lagrangian cycle limit).
+- Phase 1 scaffold done & verified (typecheck + 9 tests). Dev TimescaleDB running on :5434, migration 001 applied.
+- Phase 0 research agent still running; Phase 2 (schema + settings service) agent launched.
 
 ## Notes / Open Questions
 
