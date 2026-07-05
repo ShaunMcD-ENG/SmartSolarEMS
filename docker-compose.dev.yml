@@ -1,0 +1,14 @@
+services:
+  db:
+    image: timescale/timescaledb:latest-pg16
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_PASSWORD: smartsolar
+      POSTGRES_DB: smartsolarems
+    volumes:
+      - smartsolarems-db-data:/var/lib/postgresql/data
+
+volumes:
+  smartsolarems-db-data:
