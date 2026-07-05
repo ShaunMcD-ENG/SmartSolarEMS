@@ -9,7 +9,7 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "migrate": "bun src/db/migrate.ts",
-    "build:web": "vite build --root src/web"
+    "build:web": "vite build src/web"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
