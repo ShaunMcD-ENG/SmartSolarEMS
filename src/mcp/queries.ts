@@ -31,13 +31,16 @@ export async function planById(id: number, sql: Sql = getDb()): Promise<PlanWith
   `;
   if (!plan) return null;
 
-  const slots = await sql<PlanSlotRow[]>`
+  const rawSlots = await sql<(Omit<PlanSlotRow, "pinned_override_id"> & { pinned_override_id: string | number | null })[]>`
     SELECT slot_start, action, battery_power_w, expected_soc_pct, buy_price, sell_price,
-           expected_load_wh, expected_solar_wh, expected_grid_wh, reason
+           expected_load_wh, expected_solar_wh, expected_grid_wh, reason,
+           pinned_override_id, demand_window_protected
     FROM plan_slots
     WHERE plan_id = ${plan.id}
     ORDER BY slot_start
   `;
+  // pinned_override_id is BIGINT (oid 20) -> comes back from `postgres` as a string; normalise.
+  const slots: PlanSlotRow[] = rawSlots.map((row) => ({ ...row, pinned_override_id: toNum(row.pinned_override_id) }));
 
   return {
     id: Number(plan.id),

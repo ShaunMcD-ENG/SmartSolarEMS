@@ -237,6 +237,9 @@ export interface PlanSlotRow {
   expected_solar_wh: number | null;
   expected_grid_wh: number | null;
   reason: string | null;
+  /** Structured pin/protection info (backend migration 005); optional for older stored plans. */
+  pinned_override_id?: number | null;
+  demand_window_protected?: boolean | null;
 }
 
 export interface PlanWithSlots {

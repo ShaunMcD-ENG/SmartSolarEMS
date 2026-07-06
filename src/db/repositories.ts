@@ -68,6 +68,22 @@ export interface PlanSlotRow {
   expected_solar_wh: number | null;
   expected_grid_wh: number | null;
   reason: string | null;
+  /**
+   * Id of the override that pinned this slot (src/planner/optimiser.ts
+   * OptimiserSlotResult.pinnedByOverrideId), or null if it was freely
+   * optimised. Optional so existing in-memory fixtures (tests, mcp helpers)
+   * built before migration 005 added the column keep compiling; insertPlan
+   * treats a missing value the same as null.
+   */
+  pinned_override_id?: number | null;
+  /**
+   * Final demand-window-protection state the planner used for this slot
+   * (OptimiserSlotResult.demandWindowProtected) — lets the executor's
+   * defence-in-depth guard use a structured signal instead of parsing
+   * `reason`. See the pinned_override_id doc comment above for why this is
+   * optional.
+   */
+  demand_window_protected?: boolean | null;
 }
 
 export interface PlanWithSlots extends PlanInput {
@@ -183,7 +199,12 @@ export async function insertPlan(
     const planId = Number(inserted.id);
 
     if (slots.length > 0) {
-      const slotRows = slots.map((slot) => ({ ...slot, plan_id: planId }));
+      const slotRows = slots.map((slot) => ({
+        ...slot,
+        plan_id: planId,
+        pinned_override_id: slot.pinned_override_id ?? null,
+        demand_window_protected: slot.demand_window_protected ?? null,
+      }));
       await tx`
         INSERT INTO plan_slots ${tx(
           slotRows,
@@ -198,6 +219,8 @@ export async function insertPlan(
           "expected_solar_wh",
           "expected_grid_wh",
           "reason",
+          "pinned_override_id",
+          "demand_window_protected",
         )}
       `;
     }
@@ -266,13 +289,16 @@ export async function latestPlan(sql: Sql = getDb()): Promise<PlanWithSlots | nu
   `;
   if (!plan) return null;
 
-  const slots = await sql<PlanSlotRow[]>`
+  const rawSlots = await sql<(Omit<PlanSlotRow, "pinned_override_id"> & { pinned_override_id: string | number | null })[]>`
     SELECT slot_start, action, battery_power_w, expected_soc_pct, buy_price, sell_price,
-           expected_load_wh, expected_solar_wh, expected_grid_wh, reason
+           expected_load_wh, expected_solar_wh, expected_grid_wh, reason,
+           pinned_override_id, demand_window_protected
     FROM plan_slots
     WHERE plan_id = ${plan.id}
     ORDER BY slot_start
   `;
+  // pinned_override_id is BIGINT (oid 20) -> comes back from `postgres` as a string; normalise.
+  const slots: PlanSlotRow[] = rawSlots.map((row) => ({ ...row, pinned_override_id: toNum(row.pinned_override_id) }));
 
   return {
     id: Number(plan.id),

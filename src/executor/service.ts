@@ -3,6 +3,7 @@ import { env } from "../config/env";
 import type { SettingsKey, SettingsValue } from "../config/settings";
 import type { DecisionRow, TelemetryRow } from "../db/repositories";
 import { createLogger } from "../lib/logger";
+import type { ChargeSource } from "../modbus/client";
 import { REMOTE_EMS_CONTROL_MODE, type RemoteEmsControlMode } from "../modbus/registers";
 import type { PlanAction } from "../planner/optimiser";
 import { demandWindowFlags } from "../planner/service";
@@ -62,7 +63,7 @@ export interface ExecutorModbusClient {
   }>;
   enableRemoteEms(on: boolean): Promise<boolean>;
   setControlMode(mode: RemoteEmsControlMode): Promise<boolean>;
-  setChargePowerW(watts: number): Promise<boolean>;
+  setChargePowerW(watts: number, source?: ChargeSource): Promise<boolean>;
   setDischargePowerW(watts: number): Promise<boolean>;
 }
 
@@ -176,25 +177,25 @@ export function clampDischargeFloorW(
   return allowedMagnitude <= 0 ? 0 : -allowedMagnitude;
 }
 
-/**
- * Heuristic defence-in-depth check for whether the planner's slot0 reason
- * indicates an override is pinning this slot THROUGH demand-window
- * protection (override_demand_window=true). The planner (src/planner/service.ts
- * buildSlot0Reason / optimiser.ts design decision 1) only omits the "demand
- * window protection active" sentence when such a pin cleared the protected
- * flag, so "mentions a user override, but not demand-window protection" is a
- * reliable signal without the executor needing its own copy of the overrides
- * table.
- */
-export function isOverrideDemandWindowPin(reason: string | null | undefined): boolean {
-  if (!reason) return false;
-  return reason.includes("user override") && !reason.includes("demand window protection active");
-}
-
 export interface SafetyPipelineInput {
   action: PlanAction;
   batteryPowerW: number;
-  reason: string | null;
+  /**
+   * Id of the override that pinned this slot, straight from the plan's
+   * structured `pinned_override_id` column (src/db/repositories.ts
+   * PlanSlotRow, populated from OptimiserSlotResult.pinnedByOverrideId) —
+   * null when the slot was freely optimised. Per optimiser.ts design
+   * decision 1, a slot can only be pinned by an override THROUGH an active
+   * demand-window (i.e. while `demandWindowProtected` below is true) when
+   * that override has `override_demand_window=true` (applyOverridesToSlots
+   * clears the protected flag for exactly that case before optimise() runs),
+   * so "pinned by an override" is a reliable structured signal that the
+   * override — not a stale/erroneous plan — is responsible for a charge_grid
+   * command inside what the executor's own fresh demand-window check (below)
+   * currently flags as protected. Replaces the old reason-string heuristic
+   * (isOverrideDemandWindowPin, removed) with data threaded through the plan.
+   */
+  pinnedByOverrideId: number | null;
   slotMinutes: number;
   /** null when no SOC telemetry is available (discharge-floor clamp is skipped). */
   currentSocPct: number | null;
@@ -268,7 +269,7 @@ export function applySafetyPipeline(input: SafetyPipelineInput): SafetyPipelineR
   }
 
   // (c) Demand-window import guard (defence in depth).
-  if (action === "charge_grid" && input.demandWindowProtected && !isOverrideDemandWindowPin(input.reason)) {
+  if (action === "charge_grid" && input.demandWindowProtected && input.pinnedByOverrideId === null) {
     notes.push("demand-window guard: charge_grid rewritten to self_consume (executor defence-in-depth re-check)");
     action = "self_consume";
     powerW = 0;
@@ -498,7 +499,7 @@ export class ExecutorService {
     const pipeline = applySafetyPipeline({
       action: slot0.action,
       batteryPowerW: slot0.battery_power_w ?? 0,
-      reason: slot0.reason,
+      pinnedByOverrideId: slot0.pinned_override_id ?? null,
       slotMinutes: 5,
       currentSocPct,
       floorPct,
@@ -620,9 +621,12 @@ export class ExecutorService {
       if (!enabled) return { ok: false, error: "failed to enable/verify remote EMS" };
 
       switch (action) {
-        case "charge_solar":
+        case "charge_solar": {
+          const ok = await this.deps.client.setChargePowerW(Math.max(0, Math.round(batteryPowerW)), "pv_first");
+          return ok ? { ok: true } : { ok: false, error: "charge setpoint write/verify failed" };
+        }
         case "charge_grid": {
-          const ok = await this.deps.client.setChargePowerW(Math.max(0, Math.round(batteryPowerW)));
+          const ok = await this.deps.client.setChargePowerW(Math.max(0, Math.round(batteryPowerW)), "grid_first");
           return ok ? { ok: true } : { ok: false, error: "charge setpoint write/verify failed" };
         }
         case "discharge_load":

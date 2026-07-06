@@ -413,6 +413,8 @@ export class PlannerService {
       expected_solar_wh: solarWh[i]!,
       expected_grid_wh: slot.expectedGridWh,
       reason: i === 0 ? reason : null,
+      pinned_override_id: slot.pinnedByOverrideId,
+      demand_window_protected: slot.demandWindowProtected,
     }));
 
     const planId = await this.deps.insertPlan(

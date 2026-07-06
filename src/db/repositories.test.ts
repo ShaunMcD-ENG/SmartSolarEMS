@@ -207,6 +207,8 @@ describe.skipIf(!dbAvailable)("repositories", () => {
           expected_solar_wh: 1000,
           expected_grid_wh: 0,
           reason: "excess solar",
+          pinned_override_id: 12345,
+          demand_window_protected: false,
         },
         {
           slot_start: new Date(MARKER_TIME.getTime() + 5 * 60_000),
@@ -219,21 +221,33 @@ describe.skipIf(!dbAvailable)("repositories", () => {
           expected_solar_wh: 200,
           expected_grid_wh: 100,
           reason: "balanced",
+          demand_window_protected: true,
+          // pinned_override_id deliberately omitted: insertPlan defaults it to null.
         },
       ],
       sql,
     );
 
+    // plans.id is BIGSERIAL: insertPlan must return a genuine JS number.
     expect(typeof planId).toBe("number");
+    expect(Number.isInteger(planId)).toBe(true);
 
     const plan = await latestPlan(sql);
     expect(plan).not.toBeNull();
+    expect(typeof plan?.id).toBe("number");
     expect(plan?.id).toBe(planId);
     expect(plan?.mode).toBe("shadow");
     expect(plan?.summary).toEqual({ note: "test plan" });
     expect(plan?.slots.length).toBe(2);
     expect(plan?.slots[0]?.action).toBe("charge_solar");
     expect(plan?.slots[1]?.action).toBe("idle");
+    // Structured override/protection columns (migration 005) roundtrip, with
+    // the BIGINT pinned_override_id normalised to a JS number.
+    expect(plan?.slots[0]?.pinned_override_id).toBe(12345);
+    expect(typeof plan?.slots[0]?.pinned_override_id).toBe("number");
+    expect(plan?.slots[0]?.demand_window_protected).toBe(false);
+    expect(plan?.slots[1]?.pinned_override_id).toBeNull();
+    expect(plan?.slots[1]?.demand_window_protected).toBe(true);
   });
 
   test("insertDecision + decisionsBetween roundtrip", async () => {
@@ -268,6 +282,8 @@ describe.skipIf(!dbAvailable)("repositories", () => {
     expect(rows.length).toBe(1);
     expect(rows[0]?.mode).toBe("shadow");
     expect(rows[0]?.plan_id).toBe(planId);
+    // decisions.plan_id is BIGINT: must come back as a genuine JS number.
+    expect(typeof rows[0]?.plan_id).toBe("number");
     expect(rows[0]?.reason).toBe("test decision");
   });
 

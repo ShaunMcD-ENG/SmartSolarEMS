@@ -267,7 +267,7 @@ describe("SigenergyClient control methods (write + read-back verify)", () => {
     });
   });
 
-  test("setChargePowerW switches to PV-first command charging and writes the charge limit in kW", async () => {
+  test("setChargePowerW defaults to PV-first command charging and writes the charge limit in kW", async () => {
     const transport = makeFakeTransport();
     const client = new SigenergyClient(BASE_CONFIG, transport);
 
@@ -281,6 +281,36 @@ describe("SigenergyClient control methods (write + read-back verify)", () => {
     expect(transport.calls).toContainEqual({
       fn: "writeRegisters",
       args: [CONTROL_REGISTERS.ESS_MAX_CHARGE_LIMIT.address, [0, 3000]],
+    });
+  });
+
+  test('setChargePowerW(watts, "pv_first") explicitly selects PV-first command charging', async () => {
+    const transport = makeFakeTransport();
+    const client = new SigenergyClient(BASE_CONFIG, transport);
+
+    const ok = await client.setChargePowerW(1200, "pv_first");
+
+    expect(ok).toBe(true);
+    expect(transport.calls).toContainEqual({
+      fn: "writeRegister",
+      args: [CONTROL_REGISTERS.REMOTE_EMS_CONTROL_MODE.address, REMOTE_EMS_CONTROL_MODE.CommandChargingPvFirst],
+    });
+  });
+
+  test('setChargePowerW(watts, "grid_first") switches to grid-first command charging and writes the charge limit', async () => {
+    const transport = makeFakeTransport();
+    const client = new SigenergyClient(BASE_CONFIG, transport);
+
+    const ok = await client.setChargePowerW(4000, "grid_first");
+
+    expect(ok).toBe(true);
+    expect(transport.calls).toContainEqual({
+      fn: "writeRegister",
+      args: [CONTROL_REGISTERS.REMOTE_EMS_CONTROL_MODE.address, REMOTE_EMS_CONTROL_MODE.CommandChargingGridFirst],
+    });
+    expect(transport.calls).toContainEqual({
+      fn: "writeRegisters",
+      args: [CONTROL_REGISTERS.ESS_MAX_CHARGE_LIMIT.address, [0, 4000]],
     });
   });
 

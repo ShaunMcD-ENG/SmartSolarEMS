@@ -34,6 +34,10 @@ describe.skipIf(!dbUp)("overrides repository", () => {
     createdIds.push(charge.id);
     expect(charge.status).toBe("pending");
     expect(charge.energy_wh).toBe(9000);
+    // bigserial ids must be normalised to real JS numbers at the row boundary
+    // (the postgres driver returns oid-20 BIGINT columns as strings).
+    expect(typeof charge.id).toBe("number");
+    expect(Number.isInteger(charge.id)).toBe(true);
 
     const selfConsume = await insertOverride({
       start_time: new Date("2030-01-01T09:00:00Z"),
@@ -50,6 +54,7 @@ describe.skipIf(!dbUp)("overrides repository", () => {
     const ids = relevant.map((o) => o.id);
     expect(ids).toContain(charge.id);
     expect(ids).toContain(selfConsume.id);
+    for (const o of relevant) expect(typeof o.id).toBe("number");
 
     // Past its end_time → no longer relevant.
     const late = await relevantOverrides(new Date("2030-01-01T13:00:00Z"));
@@ -62,6 +67,7 @@ describe.skipIf(!dbUp)("overrides repository", () => {
 
     const listed = await listOverrides({ statuses: ["completed"] });
     expect(listed.map((o) => o.id)).toContain(charge.id);
+    for (const o of listed) expect(typeof o.id).toBe("number");
   });
 
   test("rejects unbounded override (no end_time and no energy_wh)", async () => {

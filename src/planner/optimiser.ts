@@ -137,6 +137,24 @@ export interface OptimiserSlotResult {
   expectedGridWh: number;
   /** Grid cost of this slot in cents (import·buy − export·sell). */
   costCents: number;
+  /**
+   * Id of the override that pinned this slot (design decisions 1/3 above),
+   * or null if this slot was freely optimised. Threaded through so callers
+   * (the executor's defence-in-depth demand-window guard, in particular)
+   * can rely on a structured signal instead of parsing the human-readable
+   * `reason` string. Mirrors `pinOverrideId` used internally during solve.
+   */
+  pinnedByOverrideId: number | null;
+  /**
+   * Final demand-window-protection state used by the optimiser for this
+   * slot — i.e. the caller's input flag (OptimiserSlot.demandWindowProtected),
+   * echoed back per-slot. Always false for a slot pinned by an
+   * `override_demand_window=true` override (the caller clears the flag
+   * before calling optimise() — see applyOverridesToSlots), so
+   * `pinnedByOverrideId !== null` and `demandWindowProtected === true` never
+   * both hold for the same slot.
+   */
+  demandWindowProtected: boolean;
 }
 
 export interface OptimiserResult {
@@ -669,6 +687,8 @@ export function optimise(input: OptimiserInput): OptimiserResult {
       expectedSocPct: final.socStartPct[t]! + (d * 100) / SOC_STEPS,
       expectedGridWh: grid,
       costCents: final.costCents[t]!,
+      pinnedByOverrideId: overrideId,
+      demandWindowProtected: prot[t] === 1,
     };
   }
 

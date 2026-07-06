@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { SettingsKey, SettingsValue } from "../config/settings";
 import type { DecisionRow, PlanSlotRow, TelemetryRow } from "../db/repositories";
+import type { ChargeSource } from "../modbus/client";
 import { REMOTE_EMS_CONTROL_MODE } from "../modbus/registers";
 import type { PlanAction } from "../planner/optimiser";
 import type { PlannerRunResult } from "../planner/service";
@@ -12,7 +13,6 @@ import {
   clampDischargePowerW,
   directionOf,
   ExecutorService,
-  isOverrideDemandWindowPin,
   nextExecutorTick,
 } from "./service";
 
@@ -94,7 +94,7 @@ function telemetryRow(soc: number | null): TelemetryRow {
 interface FakeClientOpts {
   enableRemoteEms?: (on: boolean) => Promise<boolean> | boolean;
   setControlMode?: (mode: number) => Promise<boolean> | boolean;
-  setChargePowerW?: (w: number) => Promise<boolean> | boolean;
+  setChargePowerW?: (w: number, source?: ChargeSource) => Promise<boolean> | boolean;
   setDischargePowerW?: (w: number) => Promise<boolean> | boolean;
   readSocLimits?: () => Promise<{ backupSocPct: number; chargeCutoffSocPct: number; dischargeCutoffSocPct: number }>;
 }
@@ -115,9 +115,9 @@ function makeFakeClient(opts: FakeClientOpts = {}) {
       calls.push({ fn: "setControlMode", args: [mode] });
       return opts.setControlMode ? opts.setControlMode(mode) : true;
     },
-    setChargePowerW: async (w) => {
-      calls.push({ fn: "setChargePowerW", args: [w] });
-      return opts.setChargePowerW ? opts.setChargePowerW(w) : true;
+    setChargePowerW: async (w, source) => {
+      calls.push({ fn: "setChargePowerW", args: [w, source] });
+      return opts.setChargePowerW ? opts.setChargePowerW(w, source) : true;
     },
     setDischargePowerW: async (w) => {
       calls.push({ fn: "setDischargePowerW", args: [w] });
@@ -233,26 +233,9 @@ describe("clampDischargeFloorW", () => {
   });
 });
 
-describe("isOverrideDemandWindowPin", () => {
-  test("true when reason mentions an override without demand-window protection", () => {
-    expect(isOverrideDemandWindowPin("user override #3 (charge) in charge")).toBe(true);
-  });
-
-  test("false when reason also mentions demand-window protection", () => {
-    expect(
-      isOverrideDemandWindowPin("user override #3 (charge) in charge; demand window protection active (...)"),
-    ).toBe(false);
-  });
-
-  test("false with no reason or no override mention", () => {
-    expect(isOverrideDemandWindowPin(null)).toBe(false);
-    expect(isOverrideDemandWindowPin("charging from grid at 4.2 c/kWh (2000 W)")).toBe(false);
-  });
-});
-
 describe("applySafetyPipeline", () => {
   const baseCtx = {
-    reason: null,
+    pinnedByOverrideId: null,
     slotMinutes: 5,
     currentSocPct: 50,
     floorPct: 10,
@@ -292,20 +275,20 @@ describe("applySafetyPipeline", () => {
       action: "charge_grid",
       batteryPowerW: 2000,
       demandWindowProtected: true,
-      reason: "charging from grid at 4.2 c/kWh (2000 W)",
+      pinnedByOverrideId: null,
     });
     expect(result.action).toBe("self_consume");
     expect(result.batteryPowerW).toBe(0);
     expect(result.notes.some((n) => n.includes("demand-window guard"))).toBe(true);
   });
 
-  test("demand-window guard does not rewrite when an override_demand_window pin is indicated", () => {
+  test("demand-window guard does not rewrite when the slot is pinned by an override", () => {
     const result = applySafetyPipeline({
       ...baseCtx,
       action: "charge_grid",
       batteryPowerW: 2000,
       demandWindowProtected: true,
-      reason: "user override #7 (charge) in charge",
+      pinnedByOverrideId: 7,
     });
     expect(result.action).toBe("charge_grid");
     expect(result.notes.length).toBe(0);
@@ -416,7 +399,7 @@ describe("ExecutorService.tick — shadow mode", () => {
 describe("ExecutorService.tick — active mode", () => {
   const activeSettings: SettingsFixture = { ...DEFAULT_SETTINGS, mode: { shadow: false } };
 
-  test("issues the documented charge control sequence and records executed=true", async () => {
+  test("issues the documented charge_grid control sequence (grid-first) and records executed=true", async () => {
     const { executor, decisions, calls } = makeService({
       settings: activeSettings,
       runOnce: async () => planResult({ action: "charge_grid", battery_power_w: 2000 }),
@@ -433,7 +416,23 @@ describe("ExecutorService.tick — active mode", () => {
     expect(fns).toContain("enableRemoteEms");
     expect(fns).toContain("readSocLimits");
     expect(fns).toContain("setChargePowerW");
-    expect(calls.find((c) => c.fn === "setChargePowerW")!.args[0]).toBe(2000);
+    const chargeCall = calls.find((c) => c.fn === "setChargePowerW")!;
+    expect(chargeCall.args[0]).toBe(2000);
+    expect(chargeCall.args[1]).toBe("grid_first");
+  });
+
+  test("issues the documented charge_solar control sequence (pv-first)", async () => {
+    const { executor, decisions, calls } = makeService({
+      settings: activeSettings,
+      runOnce: async () => planResult({ action: "charge_solar", battery_power_w: 1500 }),
+    });
+
+    await executor.tick();
+
+    expect(decisions[0]!.executed).toBe(true);
+    const chargeCall = calls.find((c) => c.fn === "setChargePowerW")!;
+    expect(chargeCall.args[0]).toBe(1500);
+    expect(chargeCall.args[1]).toBe("pv_first");
   });
 
   test("issues the documented discharge control sequence", async () => {
@@ -460,6 +459,48 @@ describe("ExecutorService.tick — active mode", () => {
     expect(decisions[0]!.executed).toBe(true);
     const modeCalls = calls.filter((c) => c.fn === "setControlMode");
     expect(modeCalls.some((c) => c.args[0] === REMOTE_EMS_CONTROL_MODE.MaxSelfConsumption)).toBe(true);
+  });
+
+  test("demand-window guard rewrites an unpinned charge_grid to self_consume end-to-end", async () => {
+    // Slot start 16:00 UTC, inside the configured 15:00-20:00 demand window.
+    const slotStart = new Date("2026-07-05T16:00:00.000Z");
+    const { executor, decisions, calls } = makeService({
+      settings: { ...activeSettings, demandWindow: { enabled: true, start: "15:00", end: "20:00", bufferMin: 0 } },
+      now: slotStart,
+      runOnce: async () =>
+        planResult({
+          slot_start: slotStart,
+          action: "charge_grid",
+          battery_power_w: 2000,
+          pinned_override_id: null,
+        }),
+    });
+
+    await executor.tick(slotStart);
+
+    expect(decisions[0]!.action).toBe("self_consume");
+    expect(decisions[0]!.reason).toContain("demand-window guard");
+    expect(calls.map((c) => c.fn)).not.toContain("setChargePowerW");
+  });
+
+  test("demand-window guard does not rewrite a charge_grid slot pinned by an override", async () => {
+    const slotStart = new Date("2026-07-05T16:00:00.000Z");
+    const { executor, decisions, calls } = makeService({
+      settings: { ...activeSettings, demandWindow: { enabled: true, start: "15:00", end: "20:00", bufferMin: 0 } },
+      now: slotStart,
+      runOnce: async () =>
+        planResult({
+          slot_start: slotStart,
+          action: "charge_grid",
+          battery_power_w: 2000,
+          pinned_override_id: 12,
+        }),
+    });
+
+    await executor.tick(slotStart);
+
+    expect(decisions[0]!.action).toBe("charge_grid");
+    expect(calls.map((c) => c.fn)).toContain("setChargePowerW");
   });
 
   test("a write failure records executed=false with an error", async () => {

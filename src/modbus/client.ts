@@ -55,6 +55,16 @@ export interface RatedEnergy {
 }
 
 /**
+ * Which energy source the ESS should prioritise while command-charging
+ * (docs/sigenergy-modbus.md §6.2, register 40031 modes 0x03/0x04):
+ * "grid_first" = "Command charging (consume grid power first)" (0x03),
+ * "pv_first" = "Command charging (consume PV power first)" (0x04). See
+ * setChargePowerW() below for how the executor's charge_grid/charge_solar
+ * plan actions map onto these.
+ */
+export type ChargeSource = "pv_first" | "grid_first";
+
+/**
  * Minimal surface of `modbus-serial`'s ModbusRTU this client depends on. Declared as
  * an interface (rather than importing the concrete class type) so tests can inject a
  * fake transport without subclassing ModbusRTU or opening a real socket. The real
@@ -326,35 +336,64 @@ export class SigenergyClient {
   }
 
   /**
-   * Commands the ESS to charge at up to `watts` (>= 0).
+   * Commands the ESS to charge at up to `watts` (>= 0), from either grid or PV
+   * first (`source`, default `"pv_first"`).
    *
    * docs/sigenergy-modbus.md §6.4 documents a global fixed active-power setpoint
    * (register 40001, mode 0x00 "PCS remote control") but that mode explicitly
    * bypasses load/grid netting ("these registers only control PCS power —
    * independent of loads and grid sensors"), which is the wrong tool for a
    * home-battery dispatch client: we want the inverter to keep netting against
-   * actual solar/load and only cap the ESS's own charge power. So this method uses
-   * "Command charging (consume PV power first)" (mode 0x04) plus the ESS max
+   * actual solar/load and only cap the ESS's own charge power. So this method
+   * uses the "Command charging" modes (§6.2 Appendix 6) plus the ESS max
    * charging limit (register 40032), which §6.3 documents as taking effect
-   * specifically in modes 0x03/0x04. PV-first is chosen as the default sub-mode to
-   * match this project's solar-first goal (see progress.md); callers needing
-   * grid-first charging should call setControlMode(CommandChargingGridFirst)
-   * followed by writing the limit directly via a future dedicated method.
+   * specifically in modes 0x03/0x04:
+   *   - `source: "grid_first"` -> mode 0x03 "Command charging (consume grid
+   *     power first)" — used by the executor for the planner's `charge_grid`
+   *     action (deliberately importing to charge, e.g. cheap overnight rates).
+   *   - `source: "pv_first"` (default) -> mode 0x04 "Command charging (consume
+   *     PV power first)" — used for `charge_solar` (soak up excess solar,
+   *     falling back to grid only if PV is insufficient to hit `watts`).
+   *
+   * **UNVERIFIED against real hardware** (docs/sigenergy-modbus.md §8, no
+   * documented heartbeat/watchdog and community reports of inconsistent
+   * comms-loss behaviour): confirm both sub-modes actually source power the
+   * way their names say — in particular that "PV first" truly falls back to
+   * zero/PV-only rather than silently drawing from the grid — on a real
+   * SigenStor before this path is ever exercised outside shadow mode.
    */
-  async setChargePowerW(watts: number): Promise<boolean> {
+  async setChargePowerW(watts: number, source: ChargeSource = "pv_first"): Promise<boolean> {
     if (watts < 0) {
       throw new Error("setChargePowerW: watts must be >= 0 (use setDischargePowerW to discharge)");
     }
-    const modeOk = await this.setControlMode(REMOTE_EMS_CONTROL_MODE.CommandChargingPvFirst);
+    const mode =
+      source === "grid_first"
+        ? REMOTE_EMS_CONTROL_MODE.CommandChargingGridFirst
+        : REMOTE_EMS_CONTROL_MODE.CommandChargingPvFirst;
+    const modeOk = await this.setControlMode(mode);
     if (!modeOk) return false;
     return this.writeAndVerify(CONTROL_REGISTERS.ESS_MAX_CHARGE_LIMIT, watts / 1000);
   }
 
   /**
-   * Commands the ESS to discharge at up to `watts` (>= 0). Uses "Command
-   * discharging (output from ESS first)" (mode 0x06) plus the ESS max discharging
-   * limit (register 40034) — see the setChargePowerW() comment for why the global
-   * fixed-power register (40001) is deliberately not used here.
+   * Commands the ESS to discharge at up to `watts` (>= 0). Always uses
+   * "Command discharging (output from ESS first)" (mode 0x06) plus the ESS
+   * max discharging limit (register 40034) — see the setChargePowerW()
+   * comment for why the global fixed-power register (40001) is deliberately
+   * not used here.
+   *
+   * Unlike charging, this method does NOT expose a source parameter for the
+   * discharge counterpart, mode 0x05 "Command discharging (output from PV
+   * first)": per docs/sigenergy-modbus.md §6.2 that mode prioritises PV
+   * output ahead of the battery to meet the discharge target, which is the
+   * opposite of what either `discharge_load` (drain the battery to cover load
+   * and avoid importing) or `discharge_grid` (drain the battery to export at
+   * a high sell price) need from the executor's plan actions — both want the
+   * ESS itself to deliver the commanded rate regardless of concurrent PV, not
+   * have that rate throttled down whenever the sun is out. So both plan
+   * actions map to ESS-first (0x06); mode 0x05 is deliberately unused here.
+   * **UNVERIFIED against real hardware** — see the setChargePowerW() caveat
+   * above; the same absence-of-watchdog concern applies to discharge.
    */
   async setDischargePowerW(watts: number): Promise<boolean> {
     if (watts < 0) {

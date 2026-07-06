@@ -22,8 +22,21 @@ export interface OverrideRow extends OverrideInput {
   status: OverrideStatus;
 }
 
+/** Wire shape of an overrides row: bigserial `id` (oid 20) comes back from `postgres` as a string. */
+type RawOverrideRow = Omit<OverrideRow, "id"> & { id: string | number };
+
+/**
+ * Normalises a raw driver row into OverrideRow: `id` is coerced to a real JS
+ * number at this boundary so `OverrideRow.id: number` is genuinely true for
+ * every caller (ids are bigserial but far below 2^53). Same convention as
+ * `toNum` in src/db/repositories.ts.
+ */
+function toOverrideRow(row: RawOverrideRow): OverrideRow {
+  return { ...row, id: Number(row.id) };
+}
+
 export async function insertOverride(input: OverrideInput, sql: Sql = getDb()): Promise<OverrideRow> {
-  const [row] = await sql<OverrideRow[]>`
+  const [row] = await sql<RawOverrideRow[]>`
     INSERT INTO overrides (
       start_time, end_time, action, energy_wh, power_w, override_demand_window, note
     ) VALUES (
@@ -33,7 +46,7 @@ export async function insertOverride(input: OverrideInput, sql: Sql = getDb()): 
     RETURNING *
   `;
   if (!row) throw new Error("override insert returned no row");
-  return row;
+  return toOverrideRow(row);
 }
 
 export async function listOverrides(
@@ -41,12 +54,13 @@ export async function listOverrides(
   sql: Sql = getDb(),
 ): Promise<OverrideRow[]> {
   const statuses = opts.statuses ?? null;
-  return sql<OverrideRow[]>`
+  const rows = await sql<RawOverrideRow[]>`
     SELECT * FROM overrides
     ${statuses ? sql`WHERE status = ANY(${statuses})` : sql``}
     ORDER BY start_time DESC
     LIMIT ${opts.limit ?? 100}
   `;
+  return rows.map(toOverrideRow);
 }
 
 /**
@@ -55,12 +69,13 @@ export async function listOverrides(
  * until explicitly completed/expired by the planner or executor.
  */
 export async function relevantOverrides(at: Date, sql: Sql = getDb()): Promise<OverrideRow[]> {
-  return sql<OverrideRow[]>`
+  const rows = await sql<RawOverrideRow[]>`
     SELECT * FROM overrides
     WHERE status IN ('pending', 'active')
       AND (end_time IS NULL OR end_time > ${at})
     ORDER BY start_time ASC
   `;
+  return rows.map(toOverrideRow);
 }
 
 export async function setOverrideStatus(

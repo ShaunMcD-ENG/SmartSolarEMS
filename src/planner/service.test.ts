@@ -451,6 +451,8 @@ describe("PlannerService.runOnce", () => {
     const slots = inserted[0]!.slots;
     expect(slots[0]!.action).toBe("charge_grid");
     expect(slots[0]!.reason).toContain("override #9");
+    expect(slots[0]!.pinned_override_id).toBe(9);
+    expect(slots[0]!.demand_window_protected).toBe(false);
     // Remaining 3000 Wh is what the plan delivers (± a grid-step of rounding).
     expect(result!.optimiser.overrideDeliveredWh[9]!).toBeGreaterThan(2800);
     expect(result!.optimiser.overrideDeliveredWh[9]!).toBeLessThan(3200);
@@ -511,6 +513,8 @@ describe("PlannerService.runOnce", () => {
     }
     expect(slots[0]!.reason).toContain("demand window protection");
     expect(slots[0]!.reason).not.toContain("override #6");
+    expect(slots[0]!.pinned_override_id).toBeNull();
+    expect(slots[0]!.demand_window_protected).toBe(true);
   });
 
   test("override_demand_window=true beats the demand window (end-to-end)", async () => {
@@ -533,6 +537,9 @@ describe("PlannerService.runOnce", () => {
     expect(slots[0]!.action).toBe("charge_grid");
     expect(slots[0]!.expected_grid_wh).toBeGreaterThan(50);
     expect(slots[0]!.reason).toContain("override #7");
+    expect(slots[0]!.pinned_override_id).toBe(7);
+    // override_demand_window=true cleared the protected flag for this slot.
+    expect(slots[0]!.demand_window_protected).toBe(false);
   });
 
   test("slot-0 reason mentions the price for ordinary optimisation decisions", async () => {

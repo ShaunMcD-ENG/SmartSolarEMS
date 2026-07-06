@@ -41,9 +41,19 @@ export function createApp(deps: AppDeps): Hono {
     });
   }
 
-  // Static frontend (src/web/dist), once it exists — built later (Phase 7).
-  // Guarded so its absence during earlier phases doesn't error; registered
-  // after all /api/* routes so it never shadows them.
+  // Unknown /api/* routes are always a JSON 404 — deliberately registered
+  // AFTER registerApiRoutes (real API routes win, Hono dispatches matching
+  // handlers in registration order) and BEFORE the static/SPA handlers below.
+  // Without this, the SPA fallback would serve index.html (200) for typo'd
+  // API paths whenever the built frontend exists on disk.
+  app.all("/api/*", (c) => c.json({ error: "not_found" }, 404));
+
+  // Static frontend. The serving root is injectable (deps.webDistDir, used by
+  // tests to cover both the dist-present and dist-absent cases
+  // deterministically); it defaults to src/web/dist. Guarded so its absence
+  // (e.g. before `bun run build:web` has ever run) doesn't error — non-API
+  // unknown routes then fall through to the notFound JSON 404 below. When the
+  // dist exists, unmatched non-API GETs get the SPA fallback (index.html, 200).
   const webDistDir = deps.webDistDir ?? DEFAULT_WEB_DIST_DIR;
   if (existsSync(webDistDir)) {
     app.use("/*", serveStatic({ root: webDistDir }));
