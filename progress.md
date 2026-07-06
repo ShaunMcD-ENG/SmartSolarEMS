@@ -91,7 +91,8 @@ docs/         Sigenergy Modbus register map, Amber API reference
 - [x] **Phase 7b — Web UI**: React dashboard (live telemetry, prices, plan, decisions), settings page, first-boot setup screen ✓ (typecheck clean, vite build OK, full curl-driven E2E smoke incl. 409-confirm override flow and ACTIVATE mode gate)
 - [x] **Phase 8 — MCP server**: tools to query state/plan/decisions/forecast accuracy ✓ (10 read-only tools incl. explain_decision; bearer token via POST /api/mcp/token/regenerate; 23 tests + live JSON-RPC smoke)
 - [ ] **Phase 9 — Packaging**: Dockerfile, compose for unRAID, DockerHub publish instructions, README
-- [ ] **Phase 10 — Hardening**: end-to-end verification, extra tests, forecast accuracy metrics
+- [ ] **Phase 9b — CI/CD**: GitHub Actions ci.yml pushed (tests w/ TimescaleDB service; DockerHub publish to dsmshaun/smartsolarems on main/tags — needs DOCKERHUB_USERNAME/DOCKERHUB_TOKEN repo secrets set by owner)
+- [x] **Phase 10 — Hardening**: four flagged items fixed ✓ (grid-first 0x03 vs pv-first 0x04 charge modes; discharge stays 0x06 ESS-first by design; structured pin/protection flags in plan_slots via migration 005, executor heuristic removed; dist-independent route tests; bigint ids normalised) — repo 297 tests / 0 fail
 
 ## Session Log
 
