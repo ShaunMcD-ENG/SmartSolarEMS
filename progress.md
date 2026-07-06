@@ -90,11 +90,20 @@ docs/         Sigenergy Modbus register map, Amber API reference
 - [x] **Phase 7a — HTTP layer**: auth (first-boot setup, sessions, rate limit), REST API (status/telemetry/prices/plan/decisions/settings redacted/overrides 409-confirm flow), index.ts supervisor wiring ✓ (53 tests + live smoke run; mode.shadow=false needs confirm:"ACTIVATE")
 - [x] **Phase 7b — Web UI**: React dashboard (live telemetry, prices, plan, decisions), settings page, first-boot setup screen ✓ (typecheck clean, vite build OK, full curl-driven E2E smoke incl. 409-confirm override flow and ACTIVATE mode gate)
 - [x] **Phase 8 — MCP server**: tools to query state/plan/decisions/forecast accuracy ✓ (10 read-only tools incl. explain_decision; bearer token via POST /api/mcp/token/regenerate; 23 tests + live JSON-RPC smoke)
-- [ ] **Phase 9 — Packaging**: Dockerfile, compose for unRAID, DockerHub publish instructions, README
+- [x] **Phase 9 — Packaging**: Dockerfile, compose for unRAID, DockerHub publish instructions, README ✓ (190 MB image, non-root, healthcheck; live stack test passed; lead added 60s DB boot retry to index.ts for fresh-volume initdb race)
 - [ ] **Phase 9b — CI/CD**: GitHub Actions ci.yml pushed (tests w/ TimescaleDB service; DockerHub publish to dsmshaun/smartsolarems on main/tags — needs DOCKERHUB_USERNAME/DOCKERHUB_TOKEN repo secrets set by owner)
 - [x] **Phase 10 — Hardening**: four flagged items fixed ✓ (grid-first 0x03 vs pv-first 0x04 charge modes; discharge stays 0x06 ESS-first by design; structured pin/protection flags in plan_slots via migration 005, executor heuristic removed; dist-independent route tests; bigint ids normalised) — repo 297 tests / 0 fail
 
 ## Session Log
+
+### 2026-07-06 (session 1 cont.)
+- ALL BUILD PHASES COMPLETE. 297 tests / 0 fail. Pushed through commit "Add Docker packaging…".
+- CI: .github/workflows/ci.yml — owner still needs to add DOCKERHUB_USERNAME + DOCKERHUB_TOKEN
+  repo secrets for the publish job (image: dsmshaun/smartsolarems).
+- Remaining before real-world use: configure Sigenergy IP + Amber token on the box, run in
+  shadow mode, verify registers against real hardware (esp. charge modes 0x03/0x04, watchdog
+  behaviour), review decisions via UI/MCP, then ACTIVATE.
+- Future feature (owner request): outside temperature ingestion for forecasts (Home Assistant).
 
 ### 2026-07-05 (session 1)
 - Project charter + tracker created. Git repo initialised.
