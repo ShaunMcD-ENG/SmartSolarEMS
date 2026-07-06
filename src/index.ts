@@ -203,7 +203,22 @@ async function main(): Promise<void> {
   log.info("=================================");
 
   const sql = getDb();
-  await runMigrations(sql);
+  // Fresh TimescaleDB containers pass pg_isready during initdb's temporary server,
+  // which then briefly drops connections — retry the first contact instead of crashing.
+  const dbBootDeadlineMs = 60_000;
+  const bootStart = Date.now();
+  for (;;) {
+    try {
+      await runMigrations(sql);
+      break;
+    } catch (err) {
+      if (Date.now() - bootStart > dbBootDeadlineMs) throw err;
+      log.warn("database not ready yet, retrying in 2s", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  }
 
   const settings = new SettingsService(sql);
   const sessions = createSqlSessionStore(sql);
